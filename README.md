@@ -1,16 +1,11 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+Di buat Khusus UMKM ❤️
 
 # Run and deploy your AI Studio app
 
-This contains everything you need to run your app locally.
-
-View your app in AI Studio: https://ai.studio/apps/aa5e4d72-cc39-4091-a748-416431b7ce7a
+Jika mau Download APK tanpa punya PC untuk install android studio bisa ambil apk nya ada di .buil-outputs/
 
 ## Run Locally
 
-**Prerequisites:**  [Android Studio](https://developer.android.com/studio)
 
 
 1. Open Android Studio
