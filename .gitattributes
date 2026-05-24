@@ -1,0 +1,12 @@
+# Treat Gradle wrapper and other jar files as binary to prevent corruption
+*.jar binary
+*.png binary
+*.webp binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.keystore binary
+
+# Ensure gradlew has LF line endings and is executable
+gradlew text eol=lf
+gradlew.bat text eol=crlf
