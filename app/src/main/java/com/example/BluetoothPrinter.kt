@@ -126,7 +126,9 @@ class BluetoothPrinter(private val context: Context) {
         printAddress: Boolean = true,
         printPhone: Boolean = true,
         spacingAfterReceipt: Int = 3,
-        logoSize: Int = 100
+        logoSize: Int = 100,
+        transactionId: String = "",
+        orderTimestamp: Long = 0L
     ): Boolean = withContext(Dispatchers.IO) {
         printMutex.withLock {
             if (outputStream == null) return@withLock false
@@ -139,7 +141,15 @@ class BluetoothPrinter(private val context: Context) {
                 fun formatRp(amount: Double): String = "Rp ${decimalFormat.format(amount)}"
                 
                 val dateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm:ss", Locale.getDefault())
-                val dateStr = dateFormat.format(Date())
+                val timestampDate = if (orderTimestamp > 0L) Date(orderTimestamp) else Date()
+                val dateStr = dateFormat.format(timestampDate)
+                
+                val displayTxId = if (transactionId.isNotBlank()) {
+                    transactionId
+                } else {
+                    val tf = SimpleDateFormat("'S'MMddHHmm", Locale.getDefault())
+                    tf.format(timestampDate)
+                }
                 
                 val subtotal = cartInfo.sumOf { it.product.price * it.quantity }
                 val totalQuantity = cartInfo.sumOf { it.quantity }
@@ -184,6 +194,7 @@ class BluetoothPrinter(private val context: Context) {
                 }
 
                 builder.printSeparator("=")
+                builder.printLine("No. Struk: $displayTxId")
                 builder.printLine("Waktu: $dateStr")
                 builder.printSeparator("-")
 

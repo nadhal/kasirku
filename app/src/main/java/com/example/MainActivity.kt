@@ -40,6 +40,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.verticalScroll
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.theme.MyApplicationTheme
 import kotlinx.coroutines.launch
@@ -56,14 +58,14 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
 import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import java.text.NumberFormat
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import coil.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.common.api.ApiException
 
 class MainActivity : ComponentActivity() {
     private val viewModel by viewModels<PosViewModel>()
@@ -71,16 +73,44 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            val sw = java.io.StringWriter()
+            val pw = java.io.PrintWriter(sw)
+            throwable.printStackTrace(pw)
+            val stackTrace = sw.toString()
+            try {
+                getSharedPreferences("crash_pref", MODE_PRIVATE)
+                    .edit()
+                    .putString("last_crash", stackTrace)
+                    .commit()
+            } catch (e: Exception) {
+                // Ignore SharedPreferences failure on crash
+            }
             android.util.Log.e("CRITICAL_CRASH", "Uncaught crash on thread ${thread.name}: ${throwable.localizedMessage}", throwable)
             defaultHandler?.uncaughtException(thread, throwable)
         }
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        
+        val prefs = getSharedPreferences("crash_pref", MODE_PRIVATE)
+        val lastCrash = prefs.getString("last_crash", null)
+
         setContent {
             MyApplicationTheme {
-                val configuration = androidx.compose.ui.platform.LocalConfiguration.current
-                val isExpanded = configuration.screenWidthDp >= 840
-                PosScreen(viewModel = viewModel, isExpanded = isExpanded)
+                if (lastCrash != null) {
+                    CrashScreen(
+                        stackTrace = lastCrash,
+                        onClear = {
+                            prefs.edit().remove("last_crash").commit()
+                            val intent = intent
+                            finish()
+                            startActivity(intent)
+                        }
+                    )
+                } else {
+                    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+                    val isExpanded = configuration.screenWidthDp >= 840
+                    PosScreen(viewModel = viewModel, isExpanded = isExpanded)
+                }
             }
         }
     }
@@ -169,7 +199,8 @@ fun PosScreen(viewModel: PosViewModel, isExpanded: Boolean) {
                                     spacingAfterReceipt = state.spacingAfterReceipt,
                                     storeLogoUrl = state.storeLogoUrl,
                                     printLogo = state.printStoreLogo,
-                                    logoSize = state.receiptLogoSize
+                                    logoSize = state.receiptLogoSize,
+                                    orderTimestamp = state.lastOrderTimestamp
                                 )
                             }
                         } finally {
@@ -185,48 +216,14 @@ fun PosScreen(viewModel: PosViewModel, isExpanded: Boolean) {
         }
     }
 
-    val googleSignInLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == android.app.Activity.RESULT_OK) {
-            try {
-                val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
-                val account = task.getResult(ApiException::class.java)
-                if (account != null) {
-                    viewModel.handleSignInSuccess()
-                    Toast.makeText(context, "Koneksi Google Drive Berhasil!", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, "Gagal Masuk Google: Akun kosong", Toast.LENGTH_SHORT).show()
-                }
-            } catch (e: Throwable) {
-                e.printStackTrace()
-                val message = e.localizedMessage ?: "Batal atau terjadi kesalahan"
-                Toast.makeText(context, "Gagal Masuk Google: $message", Toast.LENGTH_SHORT).show()
-            }
-        } else {
-            android.util.Log.i("MainActivity", "Google sign-in cancelled or failed with code: ${result.resultCode}")
-        }
-    }
 
-    val scanner = remember {
-        try {
-            val options = GmsBarcodeScannerOptions.Builder()
-                .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
-                .build()
-            GmsBarcodeScanning.getClient(context, options)
-        } catch (e: Throwable) {
-            android.util.Log.e("MainActivity", "Failed to initialize barcode scanner", e)
-            null
-        }
-    }
 
-    var selectedDestination by remember { mutableIntStateOf(1) }
+    var selectedDestination by remember { mutableIntStateOf(0) }
 
     val destinations = listOf(
-        "Pengaturan" to Icons.Filled.Settings,
         "Transaksi" to Icons.Filled.ShoppingCart,
-        "Laporan" to Icons.Filled.Insights,
-        "Produk" to Icons.Filled.Inventory
+        "Produk" to Icons.Filled.Inventory,
+        "Laporan" to Icons.Filled.Insights
     )
 
     Row(modifier = Modifier.fillMaxSize()) {
@@ -245,11 +242,8 @@ fun PosScreen(viewModel: PosViewModel, isExpanded: Boolean) {
                         selected = selectedDestination == index,
                         onClick = { 
                             selectedDestination = index
-                            when (index) {
-                                0 -> viewModel.toggleMainMenuSettings(true)
-                                2 -> viewModel.toggleSalesVisualization(true)
-                                3 -> viewModel.toggleProductManagement(true)
-                                else -> {}
+                            if (index == 1) {
+                                viewModel.toggleProductManagement(true)
                             }
                         },
                         icon = { Icon(icon, contentDescription = label) },
@@ -323,6 +317,44 @@ fun PosScreen(viewModel: PosViewModel, isExpanded: Boolean) {
                                 )
                             }
                         }
+                        
+                        var settingsExpanded by remember { mutableStateOf(false) }
+                        Box {
+                            IconButton(onClick = { settingsExpanded = true }) {
+                                Icon(Icons.Filled.Settings, contentDescription = "Menu Pengaturan")
+                            }
+                            DropdownMenu(
+                                expanded = settingsExpanded,
+                                onDismissRequest = { settingsExpanded = false },
+                                modifier = Modifier.background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Pengaturan Toko") },
+                                    onClick = { settingsExpanded = false; viewModel.toggleStoreInfoSettings(true) },
+                                    leadingIcon = { Icon(Icons.Filled.Store, null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Pajak & Diskon") },
+                                    onClick = { settingsExpanded = false; viewModel.toggleTaxSettings(true) },
+                                    leadingIcon = { Icon(Icons.Filled.ReceiptLong, null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Pengeluaran") },
+                                    onClick = { settingsExpanded = false; viewModel.toggleExpenseManagement(true) },
+                                    leadingIcon = { Icon(Icons.Filled.AccountBalanceWallet, null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Printer") },
+                                    onClick = { settingsExpanded = false; viewModel.togglePrinterSettings(true) },
+                                    leadingIcon = { Icon(Icons.Filled.Print, null) }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Backup (File)") },
+                                    onClick = { settingsExpanded = false; viewModel.toggleBackupSettings(true) },
+                                    leadingIcon = { Icon(Icons.Filled.Backup, null) }
+                                )
+                            }
+                        }
                     }
 
                     Row(
@@ -346,27 +378,57 @@ fun PosScreen(viewModel: PosViewModel, isExpanded: Boolean) {
                                         }
                                     }
                                     IconButton(onClick = {
-                                        if (android.os.Build.FINGERPRINT.contains("generic") || android.os.Build.MODEL.contains("Emulator")) {
-                                            Toast.makeText(context, "Barcode scanner tidak didukung di emulator", Toast.LENGTH_SHORT).show()
+                                        val fingerprint = android.os.Build.FINGERPRINT ?: ""
+                                        val model = android.os.Build.MODEL ?: ""
+                                        val hardware = android.os.Build.HARDWARE ?: ""
+                                        val product = android.os.Build.PRODUCT ?: ""
+                                        val manufacturer = android.os.Build.MANUFACTURER ?: ""
+                                        val device = android.os.Build.DEVICE ?: ""
+                                        val brand = android.os.Build.BRAND ?: ""
+
+                                        val isEmulator = fingerprint.contains("generic", ignoreCase = true) ||
+                                                fingerprint.contains("unknown", ignoreCase = true) ||
+                                                model.contains("google_sdk", ignoreCase = true) ||
+                                                model.contains("Emulator", ignoreCase = true) ||
+                                                model.contains("Android SDK built for x86", ignoreCase = true) ||
+                                                hardware.contains("goldfish", ignoreCase = true) ||
+                                                hardware.contains("ranchu", ignoreCase = true) ||
+                                                product.contains("sdk_gphone", ignoreCase = true) ||
+                                                manufacturer.contains("Genymotion", ignoreCase = true) ||
+                                                brand.contains("generic", ignoreCase = true) ||
+                                                device.contains("generic", ignoreCase = true)
+
+                                        var isGmsAvailable = false
+                                        try {
+                                            val availability = com.google.android.gms.common.GoogleApiAvailability.getInstance()
+                                            val result = availability.isGooglePlayServicesAvailable(context)
+                                            isGmsAvailable = (result == com.google.android.gms.common.ConnectionResult.SUCCESS)
+                                        } catch (e: Throwable) {
+                                            android.util.Log.e("MainActivity", "Failed to check Google Play Services", e)
+                                        }
+
+                                        if (isEmulator || !isGmsAvailable) {
+                                            Toast.makeText(context, "Barcode scanner tidak didukung atau Layanan Google Play tidak tersedia di perangkat/emulator ini", Toast.LENGTH_SHORT).show()
                                             return@IconButton
                                         }
-                                        val activeScanner = scanner
-                                        if (activeScanner != null) {
-                                            try {
-                                                activeScanner.startScan()
-                                                    .addOnSuccessListener { result ->
-                                                        result.rawValue?.let { 
-                                                            viewModel.findProductByBarcode(it) 
-                                                        }
+
+                                        try {
+                                            val options = GmsBarcodeScannerOptions.Builder()
+                                                .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
+                                                .build()
+                                            val activeScanner = GmsBarcodeScanning.getClient(context, options)
+                                            activeScanner.startScan()
+                                                .addOnSuccessListener { result ->
+                                                    result.rawValue?.let { 
+                                                        viewModel.findProductByBarcode(it) 
                                                     }
-                                                    .addOnFailureListener { e ->
-                                                        android.util.Log.e("MainActivity", "Scanner error", e)
-                                                        Toast.makeText(context, "Gagal memulai scanner: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                                                    }
-                                            } catch (e: Throwable) {
-                                                Toast.makeText(context, "Scanner tidak tersedia", Toast.LENGTH_SHORT).show()
-                                            }
-                                        } else {
+                                                }
+                                                .addOnFailureListener { e ->
+                                                    android.util.Log.e("MainActivity", "Scanner error", e)
+                                                    Toast.makeText(context, "Gagal memulai scanner: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                                }
+                                        } catch (e: Throwable) {
+                                            android.util.Log.e("MainActivity", "Scanner initialization failed on-demand", e)
                                             Toast.makeText(context, "Scanner tidak tersedia di perangkat ini", Toast.LENGTH_SHORT).show()
                                         }
                                     }) {
@@ -451,13 +513,10 @@ fun PosScreen(viewModel: PosViewModel, isExpanded: Boolean) {
                         destinations.forEachIndexed { index, (label, icon) ->
                             NavigationBarItem(
                                 selected = selectedDestination == index,
-                                onClick = { 
+                        onClick = { 
                                     selectedDestination = index
-                                    when (index) {
-                                        0 -> viewModel.toggleMainMenuSettings(true)
-                                        2 -> viewModel.toggleSalesVisualization(true)
-                                        3 -> viewModel.toggleProductManagement(true)
-                                        else -> {}
+                                    if (index == 1) {
+                                        viewModel.toggleProductManagement(true)
                                     }
                                 },
                                 icon = { Icon(icon, contentDescription = label) },
@@ -468,7 +527,12 @@ fun PosScreen(viewModel: PosViewModel, isExpanded: Boolean) {
                 }
             }
         ) { innerPadding ->
-            Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
+            if (selectedDestination == 2) {
+                Box(Modifier.padding(innerPadding).fillMaxSize()) {
+                    ReportingScreen(viewModel)
+                }
+            } else {
+                Box(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
                 if (isExpanded) {
                     Row(Modifier.fillMaxSize()) {
                         ProductSection(
@@ -552,6 +616,7 @@ fun PosScreen(viewModel: PosViewModel, isExpanded: Boolean) {
                     }
                 }
             }
+            } // Close the Box
         }
     }
 
@@ -586,7 +651,74 @@ fun PosScreen(viewModel: PosViewModel, isExpanded: Boolean) {
             onDismissRequest = viewModel::dismissCheckoutComplete,
             icon = { Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp)) },
             title = { Text("Pembayaran Berhasil") },
-            text = { Text("Pesanan telah berhasil diproses.", textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val timestamp = state.lastOrderTimestamp
+                    val txId = remember(timestamp) {
+                        try {
+                            SimpleDateFormat("'S'MMddHHmm", Locale.getDefault()).format(Date(timestamp))
+                        } catch (e: Exception) {
+                            "S" + timestamp.toString()
+                        }
+                    }
+                    val dateFormatted = remember(timestamp) {
+                        try {
+                            SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(timestamp))
+                        } catch (e: Exception) {
+                            "-"
+                        }
+                    }
+                    
+                    Text(
+                        text = "Pesanan telah berhasil diproses.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center
+                    )
+                    
+                    Spacer(modifier = Modifier.height(4.dp))
+                    
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("No. Struk", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(txId, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Waktu", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(dateFormatted, style = MaterialTheme.typography.bodySmall)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Metode Bayar", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(state.lastOrderPaymentMethod, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                            }
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f))
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Total Tagihan", style = MaterialTheme.typography.bodyMedium)
+                                Text(CurrencyFormatter.formatRp(state.lastOrderTotal), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Bayar", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(CurrencyFormatter.formatRp(state.lastOrderPaymentAmount), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                            }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Kembalian", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(CurrencyFormatter.formatRp(state.lastOrderChange), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+                }
+            },
             confirmButton = {
                 Button(
                     onClick = viewModel::dismissCheckoutComplete,
@@ -625,7 +757,8 @@ fun PosScreen(viewModel: PosViewModel, isExpanded: Boolean) {
                                             spacingAfterReceipt = state.spacingAfterReceipt,
                                             storeLogoUrl = state.storeLogoUrl,
                                             printLogo = state.printStoreLogo,
-                                            logoSize = state.receiptLogoSize
+                                            logoSize = state.receiptLogoSize,
+                                            orderTimestamp = state.lastOrderTimestamp
                                         )
                                         Toast.makeText(context, "Struk dicetak", Toast.LENGTH_SHORT).show()
                                     } else {
@@ -720,7 +853,7 @@ fun PosScreen(viewModel: PosViewModel, isExpanded: Boolean) {
             state = state,
             onDismiss = { 
                 viewModel.toggleProductManagement(false)
-                selectedDestination = 1
+                selectedDestination = 0
             },
             onAddProduct = { viewModel.addProduct(it) },
             onUpdateProduct = { viewModel.updateProduct(it) },
@@ -728,78 +861,65 @@ fun PosScreen(viewModel: PosViewModel, isExpanded: Boolean) {
         )
     }
 
-    if (state.showMainMenuSettings) {
-        MainSettingsDialog(
-            state = state,
-            onDismiss = { 
-                viewModel.toggleMainMenuSettings(false)
-                selectedDestination = 1
-            },
-            onMenuSelected = { menu ->
-                viewModel.toggleMainMenuSettings(false)
-                when (menu) {
-                    "produk" -> {
-                        viewModel.toggleProductManagement(true)
-                        selectedDestination = 3
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val json = viewModel.getExportJson()
+                if (json != null) {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            context.contentResolver.openOutputStream(uri)?.use { 
+                                it.write(json.toByteArray())
+                            }
+                        }
+                        Toast.makeText(context, "Data berhasil diekspor!", Toast.LENGTH_SHORT).show()
+                    } catch (e: Exception) {
+                        Toast.makeText(context, "Gagal mengekspor data: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
                     }
-                    "pengeluaran" -> viewModel.toggleExpenseManagement(true)
-                    "toko" -> viewModel.toggleStoreInfoSettings(true)
-                    "pajak" -> viewModel.toggleTaxSettings(true)
-                    "printer" -> viewModel.togglePrinterSettings(true)
-                    "grafik" -> {
-                        viewModel.toggleSalesVisualization(true)
-                        selectedDestination = 2
-                    }
-                    "backup" -> viewModel.toggleBackupSettings(true)
                 }
             }
-        )
+        }
     }
 
-    if (state.showSalesVisualization) {
-        SalesVisualizationScreen(
-            viewModel = viewModel,
-            onNavigateBack = { 
-                viewModel.toggleSalesVisualization(false)
-                selectedDestination = 1
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                try {
+                    val json = withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.use { 
+                            it.reader().readText()
+                        }
+                    }
+                    if (json != null) {
+                        val success = viewModel.importFromJson(json)
+                        if (success) {
+                            Toast.makeText(context, "Data berhasil dipulihkan!", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "Gagal memulihkan data. Format tidak sesuai.", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Gagal memulihkan data: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                }
             }
-        )
+        }
     }
 
     if (state.showBackupSettings) {
         BackupRestoreDialog(
             state = state,
             onDismiss = { viewModel.toggleBackupSettings(false) },
-            onSignIn = {
+            onExport = { 
                 viewModel.toggleBackupSettings(false)
-                if (android.os.Build.FINGERPRINT.contains("generic") || android.os.Build.MODEL.contains("Emulator")) {
-                    Toast.makeText(context, "Sign-In diblokir di emulator karena tidak ada Play Services", Toast.LENGTH_SHORT).show()
-                    return@BackupRestoreDialog
-                }
-                try {
-                    val signInClient = viewModel.getDriveSignInClient()
-                    googleSignInLauncher.launch(signInClient.signInIntent)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                    Toast.makeText(context, "Google Sign-In tidak didukung di perangkat ini.", Toast.LENGTH_SHORT).show()
-                }
+                exportLauncher.launch("kasirku_backup.json") 
             },
-            onLogout = {
+            onImport = { 
                 viewModel.toggleBackupSettings(false)
-                viewModel.logoutDrive()
-                Toast.makeText(context, "Koneksi Google Drive diputuskan", Toast.LENGTH_SHORT).show()
-            },
-            onBackup = {
-                viewModel.toggleBackupSettings(false)
-                Toast.makeText(context, "Memulai backup ke Google Drive...", Toast.LENGTH_SHORT).show()
-                viewModel.backupToDrive { success, msg ->
-                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                }
-            },
-            onRestore = {
-                viewModel.restoreFromDrive { success, msg ->
-                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                }
+                importLauncher.launch(arrayOf("application/json")) 
             }
         )
     }
@@ -1177,6 +1297,8 @@ fun CartPanel(
     modifier: Modifier = Modifier
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
+    var cartSearchQuery by remember { mutableStateOf("") }
+    
     Column(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -1189,6 +1311,31 @@ fun CartPanel(
                     Text("Hapus", color = MaterialTheme.colorScheme.error)
                 }
             }
+        }
+        
+        if (state.cart.isNotEmpty()) {
+            TextField(
+                value = cartSearchQuery,
+                onValueChange = { cartSearchQuery = it },
+                placeholder = { Text("Cari di keranjang...") },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (cartSearchQuery.isNotEmpty()) {
+                        IconButton(onClick = { cartSearchQuery = "" }) {
+                            Icon(Icons.Filled.Clear, contentDescription = "Clear")
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = TextFieldDefaults.colors(
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent
+                ),
+                singleLine = true
+            )
         }
         
         HorizontalDivider()
@@ -1207,8 +1354,12 @@ fun CartPanel(
                 }
             }
         } else {
+            val filteredCart = remember(state.cart, cartSearchQuery) {
+                if (cartSearchQuery.isBlank()) state.cart
+                else state.cart.filter { it.product.name.contains(cartSearchQuery, ignoreCase = true) }
+            }
             LazyColumn(modifier = Modifier.weight(1f)) {
-                items(state.cart, key = { it.product.id }) { item ->
+                items(filteredCart, key = { it.product.id }) { item ->
                     CartItemRow(item, onAdd = { onAdd(item.product) }, onRemove = { onRemove(item.product) })
                     HorizontalDivider()
                 }
@@ -1294,5 +1445,104 @@ fun CartItemRow(item: CartItem, onAdd: () -> Unit, onRemove: () -> Unit) {
             modifier = Modifier.width(72.dp),
             textAlign = TextAlign.End
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CrashScreen(stackTrace: String, onClear: () -> Unit) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Diagnostik Sistem: Error Terdeteksi", color = MaterialTheme.colorScheme.onErrorContainer) },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.errorContainer
+                )
+            )
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Error,
+                        contentDescription = "Error",
+                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.size(48.dp)
+                    )
+                    Column {
+                        Text(
+                            text = "Aplikasi Berhenti Tak Terduga",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Text(
+                            text = "Kami telah mencatat detail kendala di bawah ini untuk membantu memperbaikinya.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
+            }
+
+            Text(
+                text = "Stack Trace / Log Error:",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold
+            )
+
+            Card(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(12.dp)
+                ) {
+                    val scrollState = androidx.compose.foundation.rememberScrollState()
+                    androidx.compose.foundation.text.selection.SelectionContainer {
+                        Text(
+                            text = stackTrace,
+                            style = androidx.compose.ui.text.TextStyle(
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                fontSize = 12.sp
+                            ),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .verticalScroll(scrollState)
+                        )
+                    }
+                }
+            }
+
+            Button(
+                onClick = onClear,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+            ) {
+                Icon(Icons.Filled.Refresh, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Hapus Log & Mulai Ulang", style = MaterialTheme.typography.titleMedium)
+            }
+        }
     }
 }

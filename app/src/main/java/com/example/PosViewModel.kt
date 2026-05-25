@@ -71,6 +71,7 @@ data class PosState(
     val lastOrderPaymentMethod: String = "Tunai",
     val lastOrderPaymentAmount: Double = 0.0,
     val lastOrderChange: Double = 0.0,
+    val lastOrderTimestamp: Long = 0L,
     val isTaxEnabled: Boolean = true,
     val discountPercentage: Double = 0.0,
     val taxPercentage: Double = 11.0,
@@ -100,17 +101,21 @@ data class PosState(
     val isBackingUp: Boolean = false,
     val isRestoring: Boolean = false,
     val isPrinting: Boolean = false,
-    val driveAccountName: String? = null,
 
     // Optimized fields
     val categories: List<String> = listOf("Semua"),
     val filteredProducts: List<Product> = emptyList()
 )
 
+@kotlinx.serialization.Serializable
+data class BackupPayload(
+    val products: List<ProductEntity>,
+    val settings: List<SettingEntity>
+)
+
 class PosViewModel(application: Application) : AndroidViewModel(application) {
     private val database = AppDatabase.getDatabase(application)
     private val dao = database.posDao()
-    private val backupHelper = DriveBackupHelper(application)
 
     private val _state = MutableStateFlow(PosState())
     val state: StateFlow<PosState> = _state.asStateFlow()
@@ -153,13 +158,6 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                     observeExpenses()
                 } catch (e: Throwable) {
                     android.util.Log.e("PosViewModel", "Failed to observe expenses", e)
-                }
-            }
-            launch(Dispatchers.IO) {
-                try {
-                    checkDriveAccount()
-                } catch (e: Throwable) {
-                    android.util.Log.e("PosViewModel", "Failed to check drive account", e)
                 }
             }
         }
@@ -442,8 +440,9 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                 val saleItems = currentCart.map { 
                     SaleItem(it.product.id, it.product.name, it.product.price, it.product.costPrice, it.quantity)
                 }
+                val saleTimestamp = System.currentTimeMillis()
                 val saleEntity = SaleEntity(
-                    timestamp = System.currentTimeMillis(),
+                    timestamp = saleTimestamp,
                     totalAmount = currentTotal,
                     discountAmount = currentDiscount,
                     taxAmount = currentTax,
@@ -469,6 +468,7 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
                         lastOrderPaymentMethod = paymentMethod,
                         lastOrderPaymentAmount = if (paymentAmount > 0) paymentAmount else currentTotal,
                         lastOrderChange = change,
+                        lastOrderTimestamp = saleTimestamp,
                         cart = emptyList()
                     )
                 }
@@ -653,83 +653,30 @@ class PosViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(isPrinting = isPrinting) }
     }
 
-    // Google Drive Backup & Restoring Actions
-    fun checkDriveAccount() {
-        val account = backupHelper.getSignedInAccount()
-        _state.update { it.copy(driveAccountName = account?.email) }
-    }
-
-    fun handleSignInSuccess() {
-        checkDriveAccount()
-    }
-
-    fun logoutDrive() {
-        viewModelScope.launch {
-            backupHelper.getSignInClient().signOut()
-            backupHelper.clearToken()
-            _state.update { it.copy(driveAccountName = null) }
+    // Local Backup & Restore Actions
+    suspend fun getExportJson(): String? = withContext(Dispatchers.IO) {
+        return@withContext try {
+            val dbProducts = dao.getAllProducts()
+            val dbSettings = dao.getAllSettings()
+            val payload = BackupPayload(products = dbProducts, settings = dbSettings)
+            posJson.encodeToString(payload)
+        } catch (e: Exception) {
+            android.util.Log.e("PosViewModel", "Export error", e)
+            null
         }
     }
 
-    fun getDriveSignInClient() = backupHelper.getSignInClient()
-
-    fun backupToDrive(onResult: (Boolean, String) -> Unit) {
-        viewModelScope.launch {
-            _state.update { it.copy(isBackingUp = true) }
-            val token = backupHelper.getAccessToken()
-            if (token == null) {
-                _state.update { it.copy(isBackingUp = false) }
-                onResult(false, "Gagal mendapatkan otorisasi Google Drive.")
-                return@launch
-            }
-
-            try {
-                val dbProducts = dao.getAllProducts()
-                val dbSettings = dao.getAllSettings()
-                val payload = BackupPayload(products = dbProducts, settings = dbSettings)
-
-                val success = backupHelper.uploadBackup(token, payload)
-                if (success) {
-                    onResult(true, "Cadangan berhasil diunggah ke Google Drive.")
-                } else {
-                    onResult(false, "Gagal mengunggah cadangan ke Google Drive (Periksa koneksi/izin Anda).")
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                onResult(false, "Kesalahan saat mengunggah: ${e.localizedMessage}")
-            } finally {
-                _state.update { it.copy(isBackingUp = false) }
-            }
-        }
-    }
-
-    fun restoreFromDrive(onResult: (Boolean, String) -> Unit) {
-        viewModelScope.launch {
-            _state.update { it.copy(isRestoring = true) }
-            val token = backupHelper.getAccessToken()
-            if (token == null) {
-                _state.update { it.copy(isRestoring = false) }
-                onResult(false, "Gagal mendapatkan otorisasi Google Drive.")
-                return@launch
-            }
-
-            try {
-                val payload = backupHelper.downloadBackup(token)
-                if (payload != null) {
-                    dao.clearProducts()
-                    dao.clearSettings()
-                    dao.insertProducts(payload.products)
-                    dao.insertSettings(payload.settings)
-                    onResult(true, "Data POS berhasil dipulihkan dari Google Drive!")
-                } else {
-                    onResult(false, "File cadangan tidak ditemukan di Google Drive Anda.")
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                onResult(false, "Kesalahan saat memulihkan: ${e.localizedMessage}")
-            } finally {
-                _state.update { it.copy(isRestoring = false) }
-            }
+    suspend fun importFromJson(jsonString: String): Boolean = withContext(Dispatchers.IO) {
+        return@withContext try {
+            val payload = posJson.decodeFromString<BackupPayload>(jsonString)
+            dao.clearProducts()
+            dao.clearSettings()
+            dao.insertProducts(payload.products)
+            dao.insertSettings(payload.settings)
+            true
+        } catch (e: Exception) {
+            android.util.Log.e("PosViewModel", "Import error", e)
+            false
         }
     }
 

@@ -98,33 +98,35 @@ fun SalesVisualizationScreen(
 fun DailySalesChart(sales: List<SaleEntity>) {
     val modelProducer = remember { ChartEntryModelProducer() }
     
-    val dailyData = remember(sales) {
-        val today = Calendar.getInstance()
-        today.set(Calendar.HOUR_OF_DAY, 0)
-        today.set(Calendar.MINUTE, 0)
-        today.set(Calendar.SECOND, 0)
-        today.set(Calendar.MILLISECOND, 0)
-        
-        val last7Days = mutableListOf<Pair<String, Double>>()
-        val dateFormat = SimpleDateFormat("dd/MM", Locale.getDefault())
-        
-        for (i in 6 downTo 0) {
-            val date = Calendar.getInstance().apply { timeInMillis = today.timeInMillis }.apply { add(Calendar.DAY_OF_YEAR, -i) }
-            val dayKey = dateFormat.format(date.time)
+    var dailyData by remember { mutableStateOf<List<Pair<String, Double>>>(emptyList()) }
+
+    LaunchedEffect(sales) {
+        withContext(Dispatchers.Default) {
+            val today = Calendar.getInstance()
+            today.set(Calendar.HOUR_OF_DAY, 0)
+            today.set(Calendar.MINUTE, 0)
+            today.set(Calendar.SECOND, 0)
+            today.set(Calendar.MILLISECOND, 0)
             
-            // Calculate sales for this specific day
-            val startOfDay = date.timeInMillis
-            val endOfDay = Calendar.getInstance().apply { 
-                timeInMillis = date.timeInMillis
-                add(Calendar.DAY_OF_YEAR, 1)
-                add(Calendar.MILLISECOND, -1)
-            }.timeInMillis
+            val last7Days = mutableListOf<Pair<String, Double>>()
+            val dateFormat = SimpleDateFormat("dd/MM", Locale.getDefault())
             
-            val totalForDay = sales.filter { it.timestamp in startOfDay..endOfDay }.sumOf { it.totalAmount - it.taxAmount }
-            last7Days.add(dayKey to totalForDay)
+            for (i in 6 downTo 0) {
+                val date = Calendar.getInstance().apply { timeInMillis = today.timeInMillis }.apply { add(Calendar.DAY_OF_YEAR, -i) }
+                val dayKey = dateFormat.format(date.time)
+                
+                val startOfDay = date.timeInMillis
+                val endOfDay = Calendar.getInstance().apply { 
+                    timeInMillis = date.timeInMillis
+                    add(Calendar.DAY_OF_YEAR, 1)
+                    add(Calendar.MILLISECOND, -1)
+                }.timeInMillis
+                
+                val totalForDay = sales.filter { it.timestamp in startOfDay..endOfDay }.sumOf { it.totalAmount - it.taxAmount }
+                last7Days.add(dayKey to totalForDay)
+            }
+            dailyData = last7Days
         }
-        
-        last7Days
     }
 
     LaunchedEffect(dailyData) {
@@ -178,37 +180,39 @@ fun DailySalesChart(sales: List<SaleEntity>) {
 fun WeeklySalesChart(sales: List<SaleEntity>) {
     val modelProducer = remember { ChartEntryModelProducer() }
     
-    val weeklyData = remember(sales) {
-        val today = Calendar.getInstance()
-        today.set(Calendar.HOUR_OF_DAY, 0)
-        today.set(Calendar.MINUTE, 0)
-        today.set(Calendar.SECOND, 0)
-        today.set(Calendar.MILLISECOND, 0)
-        
-        // Find start of current week (Monday)
-        today.set(Calendar.DAY_OF_WEEK, today.firstDayOfWeek)
-        
-        val last4Weeks = mutableListOf<Pair<String, Double>>()
-        val dateFormat = SimpleDateFormat("dd/MM", Locale.getDefault())
-        
-        for (i in 3 downTo 0) {
-            val startOfWeek = Calendar.getInstance().apply { timeInMillis = today.timeInMillis }.apply { add(Calendar.WEEK_OF_YEAR, -i) }
-            val endOfWeek = Calendar.getInstance().apply { timeInMillis = startOfWeek.timeInMillis }.apply { add(Calendar.DAY_OF_YEAR, 6) }
+    var weeklyData by remember { mutableStateOf<List<Pair<String, Double>>>(emptyList()) }
+
+    LaunchedEffect(sales) {
+        withContext(Dispatchers.Default) {
+            val today = Calendar.getInstance()
+            today.set(Calendar.HOUR_OF_DAY, 0)
+            today.set(Calendar.MINUTE, 0)
+            today.set(Calendar.SECOND, 0)
+            today.set(Calendar.MILLISECOND, 0)
             
-            val weekLabel = "${dateFormat.format(startOfWeek.time)}-${dateFormat.format(endOfWeek.time)}"
+            today.set(Calendar.DAY_OF_WEEK, today.firstDayOfWeek)
             
-            val startMillis = startOfWeek.timeInMillis
-            val endMillis = Calendar.getInstance().apply { 
-                timeInMillis = endOfWeek.timeInMillis
-                add(Calendar.DAY_OF_YEAR, 1)
-                add(Calendar.MILLISECOND, -1)
-            }.timeInMillis
+            val last4Weeks = mutableListOf<Pair<String, Double>>()
+            val dateFormat = SimpleDateFormat("dd/MM", Locale.getDefault())
             
-            val totalForWeek = sales.filter { it.timestamp in startMillis..endMillis }.sumOf { it.totalAmount - it.taxAmount }
-            last4Weeks.add(weekLabel to totalForWeek)
+            for (i in 3 downTo 0) {
+                val startOfWeek = Calendar.getInstance().apply { timeInMillis = today.timeInMillis }.apply { add(Calendar.WEEK_OF_YEAR, -i) }
+                val endOfWeek = Calendar.getInstance().apply { timeInMillis = startOfWeek.timeInMillis }.apply { add(Calendar.DAY_OF_YEAR, 6) }
+                
+                val weekLabel = "${dateFormat.format(startOfWeek.time)}-${dateFormat.format(endOfWeek.time)}"
+                
+                val startMillis = startOfWeek.timeInMillis
+                val endMillis = Calendar.getInstance().apply { 
+                    timeInMillis = endOfWeek.timeInMillis
+                    add(Calendar.DAY_OF_YEAR, 1)
+                    add(Calendar.MILLISECOND, -1)
+                }.timeInMillis
+                
+                val totalForWeek = sales.filter { it.timestamp in startMillis..endMillis }.sumOf { it.totalAmount - it.taxAmount }
+                last4Weeks.add(weekLabel to totalForWeek)
+            }
+            weeklyData = last4Weeks
         }
-        
-        last4Weeks
     }
 
     LaunchedEffect(weeklyData) {
@@ -436,7 +440,7 @@ fun SummaryDashboard(sales: List<SaleEntity>, expenses: List<ExpenseEntity>, jso
                     Spacer(Modifier.height(4.dp))
                     val progress = if (totalRevenue > 0) (total / totalRevenue).toFloat().coerceIn(0f, 1f) else 0f
                     LinearProgressIndicator(
-                        progress = progress,
+                        progress = { progress },
                         modifier = Modifier.fillMaxWidth(),
                         color = MaterialTheme.colorScheme.primary,
                         trackColor = MaterialTheme.colorScheme.surfaceVariant

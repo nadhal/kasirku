@@ -48,7 +48,7 @@ fun MainSettingsDialog(
                 SettingsMenuItem(icon = Icons.AutoMirrored.Filled.ReceiptLong, text = "4. Pajak & Diskon", onClick = { onMenuSelected("pajak") })
                 SettingsMenuItem(icon = Icons.Filled.Print, text = "5. Printer (Bluetooth & Struk)", onClick = { onMenuSelected("printer") })
                 SettingsMenuItem(icon = Icons.Filled.BarChart, text = "6. Grafik Penjualan", onClick = { onMenuSelected("grafik") })
-                SettingsMenuItem(icon = Icons.Filled.Backup, text = "7. Cadangan & Pulihkan (Google Drive)", onClick = { onMenuSelected("backup") })
+                SettingsMenuItem(icon = Icons.Filled.Backup, text = "7. Cadangan & Pemulihan (File)", onClick = { onMenuSelected("backup") })
             }
         },
         confirmButton = {
@@ -340,10 +340,8 @@ fun TaxSettingsDialog(
 fun BackupRestoreDialog(
     state: PosState,
     onDismiss: () -> Unit,
-    onSignIn: () -> Unit,
-    onLogout: () -> Unit,
-    onBackup: () -> Unit,
-    onRestore: () -> Unit
+    onExport: () -> Unit,
+    onImport: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -356,7 +354,7 @@ fun BackupRestoreDialog(
                     modifier = Modifier.size(28.dp)
                 )
                 Spacer(Modifier.width(12.dp))
-                Text("Cadangan & Pemulihan")
+                Text("Cadangan & Pemulihan (File)")
             }
         },
         text = {
@@ -365,144 +363,43 @@ fun BackupRestoreDialog(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(
-                    text = "Amankan data produk dan pengaturan toko Anda dengan menyimpannya ke awan Google Drive pribadi.",
+                    text = "Amankan data produk dan pengaturan toko Anda dengan mengekspornya ke sebuah file.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                if (state.driveAccountName != null) {
-                    Card(
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Button(
+                        onClick = onExport,
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Filled.FileDownload, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Ekspor Data ke File")
+                    }
+
+                    ElevatedButton(
+                        onClick = onImport,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.elevatedButtonColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = MaterialTheme.colorScheme.onSurfaceVariant
                         ),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                        shape = RoundedCornerShape(12.dp)
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.CheckCircle,
-                                contentDescription = "Terhubung",
-                                tint = androidx.compose.ui.graphics.Color(0xFF2D9C5E),
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    "Google Drive Terhubung",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    state.driveAccountName,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Button(
-                            onClick = onBackup,
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !state.isBackingUp && !state.isRestoring,
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            if (state.isBackingUp) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.onPrimary
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text("Mencadangkan...")
-                            } else {
-                                Icon(Icons.Filled.CloudUpload, contentDescription = null, modifier = Modifier.size(20.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text("Cadangkan Sekarang")
-                            }
-                        }
-
-                        ElevatedButton(
-                            onClick = onRestore,
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = !state.isBackingUp && !state.isRestoring,
-                            colors = ButtonDefaults.elevatedButtonColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                            ),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            if (state.isRestoring) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text("Memulihkan...")
-                            } else {
-                                Icon(Icons.Filled.CloudDownload, contentDescription = null, modifier = Modifier.size(20.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text("Pulihkan Cadangan")
-                            }
-                        }
-
-                        TextButton(
-                            onClick = onLogout,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.textButtonColors(
-                                contentColor = MaterialTheme.colorScheme.error
-                            )
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Putuskan Hubungan Google Drive", style = MaterialTheme.typography.labelMedium)
-                        }
-                    }
-                } else {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.CloudOff,
-                            contentDescription = "Belum Terhubung",
-                            tint = MaterialTheme.colorScheme.outline,
-                            modifier = Modifier.size(48.dp)
-                        )
-                        Text(
-                            text = "Belum Ada Akun Terhubung",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        
-                        Button(
-                            onClick = onSignIn,
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.Login, contentDescription = null, modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Hubungkan Google Drive")
-                        }
+                        Icon(Icons.Filled.FileUpload, contentDescription = null, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Pulihkan Data dari File")
                     }
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Selesai")
-            }
+            TextButton(onClick = onDismiss) { Text("Tutup") }
         }
     )
 }
