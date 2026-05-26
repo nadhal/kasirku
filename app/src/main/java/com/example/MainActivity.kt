@@ -54,9 +54,6 @@ import android.widget.Toast
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import android.bluetooth.BluetoothDevice
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
-import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -378,59 +375,7 @@ fun PosScreen(viewModel: PosViewModel, isExpanded: Boolean) {
                                         }
                                     }
                                     IconButton(onClick = {
-                                        val fingerprint = android.os.Build.FINGERPRINT ?: ""
-                                        val model = android.os.Build.MODEL ?: ""
-                                        val hardware = android.os.Build.HARDWARE ?: ""
-                                        val product = android.os.Build.PRODUCT ?: ""
-                                        val manufacturer = android.os.Build.MANUFACTURER ?: ""
-                                        val device = android.os.Build.DEVICE ?: ""
-                                        val brand = android.os.Build.BRAND ?: ""
-
-                                        val isEmulator = fingerprint.contains("generic", ignoreCase = true) ||
-                                                fingerprint.contains("unknown", ignoreCase = true) ||
-                                                model.contains("google_sdk", ignoreCase = true) ||
-                                                model.contains("Emulator", ignoreCase = true) ||
-                                                model.contains("Android SDK built for x86", ignoreCase = true) ||
-                                                hardware.contains("goldfish", ignoreCase = true) ||
-                                                hardware.contains("ranchu", ignoreCase = true) ||
-                                                product.contains("sdk_gphone", ignoreCase = true) ||
-                                                manufacturer.contains("Genymotion", ignoreCase = true) ||
-                                                brand.contains("generic", ignoreCase = true) ||
-                                                device.contains("generic", ignoreCase = true)
-
-                                        var isGmsAvailable = false
-                                        try {
-                                            val availability = com.google.android.gms.common.GoogleApiAvailability.getInstance()
-                                            val result = availability.isGooglePlayServicesAvailable(context)
-                                            isGmsAvailable = (result == com.google.android.gms.common.ConnectionResult.SUCCESS)
-                                        } catch (e: Throwable) {
-                                            android.util.Log.e("MainActivity", "Failed to check Google Play Services", e)
-                                        }
-
-                                        if (isEmulator || !isGmsAvailable) {
-                                            Toast.makeText(context, "Barcode scanner tidak didukung atau Layanan Google Play tidak tersedia di perangkat/emulator ini", Toast.LENGTH_SHORT).show()
-                                            return@IconButton
-                                        }
-
-                                        try {
-                                            val options = GmsBarcodeScannerOptions.Builder()
-                                                .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
-                                                .build()
-                                            val activeScanner = GmsBarcodeScanning.getClient(context, options)
-                                            activeScanner.startScan()
-                                                .addOnSuccessListener { result ->
-                                                    result.rawValue?.let { 
-                                                        viewModel.findProductByBarcode(it) 
-                                                    }
-                                                }
-                                                .addOnFailureListener { e ->
-                                                    android.util.Log.e("MainActivity", "Scanner error", e)
-                                                    Toast.makeText(context, "Gagal memulai scanner: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
-                                                }
-                                        } catch (e: Throwable) {
-                                            android.util.Log.e("MainActivity", "Scanner initialization failed on-demand", e)
-                                            Toast.makeText(context, "Scanner tidak tersedia di perangkat ini", Toast.LENGTH_SHORT).show()
-                                        }
+                                        Toast.makeText(context, "Fitur scanner sedang dalam perbaikan.", Toast.LENGTH_SHORT).show()
                                     }) {
                                         Icon(Icons.Filled.QrCodeScanner, contentDescription = "Scan Barcode")
                                     }
