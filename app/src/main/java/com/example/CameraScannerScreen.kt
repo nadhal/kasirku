@@ -10,8 +10,15 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
@@ -29,6 +36,7 @@ fun CameraScannerScreen(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val previewView = remember { PreviewView(context) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
     
     LaunchedEffect(Unit) {
         Log.d("CameraScanner", "Starting camera initialization")
@@ -83,6 +91,7 @@ fun CameraScannerScreen(
             Log.d("CameraScanner", "Camera bound to lifecycle with analyzer")
         } catch (e: Exception) {
             Log.e("CameraScanner", "Camera initialization failed", e)
+            errorMessage = "Gagal memuat kamera: ${e.localizedMessage}"
         }
     }
     
@@ -91,5 +100,27 @@ fun CameraScannerScreen(
             factory = { previewView },
             modifier = Modifier.fillMaxSize()
         )
+        errorMessage?.let {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.7f))
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
+            ) {
+                androidx.compose.material3.Text(
+                    text = "Scanner Error",
+                    color = androidx.compose.ui.graphics.Color.White,
+                    style = androidx.compose.material3.MaterialTheme.typography.titleLarge
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                androidx.compose.material3.Text(
+                    text = it,
+                    color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.8f),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+            }
+        }
     }
 }

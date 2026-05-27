@@ -16,3 +16,5 @@
 local.properties
 .env
 debug.keystore
+firebase-applet-config.json
+# IMPORTANT: Remove these files from Git history if they have been committed!
