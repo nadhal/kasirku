@@ -36,6 +36,10 @@ import java.util.Locale
 import java.util.UUID
 import androidx.compose.ui.platform.LocalContext
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import android.Manifest
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -492,8 +496,27 @@ fun ProductForm(
     var description by remember { mutableStateOf(initialProduct?.description ?: "") }
     var barcode by remember { mutableStateOf(initialProduct?.barcode ?: "") }
     var wholesaleTiers by remember { mutableStateOf(initialProduct?.wholesaleTiers ?: emptyList()) }
+    var showScanner by remember { mutableStateOf(false) }
     
     val context = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            showScanner = true
+        } else {
+            Toast.makeText(context, "Izin kamera diperlukan untuk fitur scan barcode.", Toast.LENGTH_LONG).show()
+        }
+    }
+    
+    if (showScanner) {
+        CameraScannerScreen(
+            onQrCodeDetected = { scannedCode ->
+                barcode = scannedCode
+                showScanner = false
+            }
+        )
+    }
     
     // Selectable product icons available
     val presetIcons = remember {
@@ -766,7 +789,11 @@ fun ProductForm(
                         leadingIcon = { Icon(Icons.Filled.QrCode, contentDescription = null) },
                         trailingIcon = {
                             IconButton(onClick = {
-                                Toast.makeText(context, "Fitur scanner sedang dalam perbaikan.", Toast.LENGTH_SHORT).show()
+                                if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                    showScanner = true
+                                } else {
+                                    launcher.launch(Manifest.permission.CAMERA)
+                                }
                             }) {
                                 Icon(Icons.Filled.QrCodeScanner, contentDescription = "Scan")
                             }
