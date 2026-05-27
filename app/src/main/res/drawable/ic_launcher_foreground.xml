@@ -3,6 +3,6 @@
     <item
         android:width="66dp"
         android:height="66dp"
-        android:drawable="@drawable/kasirku_logo_foreground_1779909970454"
+        android:drawable="@drawable/pos_icon_1779539526551"
         android:gravity="center" />
 </layer-list>

@@ -20,6 +20,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "pos_database"
                 )
+                .fallbackToDestructiveMigration(dropAllTables = true)
                 .build()
                 INSTANCE = instance
                 instance
